@@ -28,7 +28,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
+import warnings
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -41,6 +43,12 @@ from skills import calculate_cycle_phase, get_fertile_window
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("femcare.main")
+
+# Keep the terminal demo clean: silence library warnings and ADK's own error
+# tracebacks (we surface friendly messages ourselves in handle_live).
+warnings.filterwarnings("ignore")
+for _noisy in ("google_adk", "google.adk", "google_genai", "google.genai", "mcp"):
+    logging.getLogger(_noisy).setLevel(logging.CRITICAL)
 
 load_dotenv()  # pull GOOGLE_API_KEY from .env if present
 CONFIG = load_config()
@@ -149,7 +157,14 @@ def route_offline(user_text: str) -> str:
 async def cycle_expert_offline(user_text: str) -> str:
     """Cycle Expert: use MCP history + skills to answer prediction questions."""
     last = await mcp_fetch("get_last_period")
-    if last.get("status") != "success":
+    # Cold start: no local history — ask the user to supply their details.
+    if isinstance(last, dict) and last.get("status") == "empty":
+        return (
+            "I don't have any saved cycle history for you yet. To predict your cycle, could "
+            "you tell me the start date of your last period (YYYY-MM-DD) and your average "
+            "cycle length in days?"
+        )
+    if not isinstance(last, dict) or last.get("status") != "success":
         return "I couldn't access your cycle history right now. Please try again."
 
     date, length = last["last_period_date"], last["cycle_length"]
@@ -230,7 +245,12 @@ def build_root_agent():
         instruction=(
             "You are a menstrual-cycle expert. When you need the user's history, call the "
             "MCP tools (get_last_period / get_cycle_history). Use calculate_cycle_phase and "
-            "get_fertile_window to compute answers. Be concise, warm, and factual."
+            "get_fertile_window to compute answers. Be concise, warm, and factual.\n"
+            "COLD START: If a tool returns {'status': 'empty'}, or a calculation skill returns "
+            "an {'error': 'InvalidInput'} payload, do NOT crash, retry, or guess. Stay in your "
+            "empathetic concierge persona, explain that no local cycle data is available, and "
+            "politely ask the user to provide their last period start date (YYYY-MM-DD) and "
+            "their average cycle length in days."
         ),
         tools=[calculate_cycle_phase, get_fertile_window, mcp_tools],
         after_model_callback=disclaimer_callback,  # Security guardrail on output
@@ -267,24 +287,58 @@ def build_root_agent():
     return router
 
 
+def _is_rate_limit(exc: Exception) -> bool:
+    """True if the exception is a Gemini quota / rate-limit (429) error."""
+    msg = str(exc)
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+
+
+def _retry_delay_seconds(exc: Exception, default: int = 32) -> int:
+    """Extract the suggested retry delay (seconds) from a 429 error message."""
+    msg = str(exc)
+    match = re.search(r"retry(?:Delay)?['\":\s]*['\"]?(\d+(?:\.\d+)?)s", msg)
+    return int(float(match.group(1))) + 2 if match else default
+
+
 async def handle_live(runner, user_id: str, session_id: str, user_text: str) -> None:
-    """Run one turn through the ADK Runner and render the final response."""
+    """Run one turn through the ADK Runner; auto-retry once on a rate limit."""
     from google.genai import types as genai_types
 
     console.print(f"[dim](redacted for LLM: “{redact_pii(user_text)}”)[/dim]")
     message = genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=user_text)])
-    final, author = "", "Cycle Expert"
-    try:
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=message):
-            if event.is_final_response() and event.content and event.content.parts:
-                final = event.content.parts[0].text or ""
-                author = {"cycle_expert": "Cycle Expert", "safety_guard": "Safety Guard"}.get(
-                    event.author, "Cycle Expert"
+
+    for attempt in range(2):  # one initial try + one retry after a rate limit
+        final, author = "", "Cycle Expert"
+        try:
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=message
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    final = event.content.parts[0].text or ""
+                    author = {"cycle_expert": "Cycle Expert", "safety_guard": "Safety Guard"}.get(
+                        event.author, "Cycle Expert"
+                    )
+            show_response(author, final or "(no response)")
+            return
+        except Exception as exc:  # noqa: BLE001
+            if _is_rate_limit(exc) and attempt == 0:
+                delay = _retry_delay_seconds(exc)
+                console.print(
+                    f"[yellow]⏳ Gemini free-tier rate limit (5 req/min) hit — "
+                    f"waiting {delay}s and retrying…[/]"
                 )
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[main] Live run failed: %s", exc)
-        final = "The live agent hit an error; please check your API key / network."
-    show_response(author, final or "(no response)")
+                await asyncio.sleep(delay)
+                continue
+            if _is_rate_limit(exc):
+                show_response(
+                    "System",
+                    "⏳ Gemini free-tier quota still exhausted. Wait a minute and try again, "
+                    "or raise your quota at https://ai.dev/rate-limit.",
+                )
+            else:
+                logger.error("[main] Live run failed: %s", exc)
+                show_response(author, "The live agent hit an error; please check your API key / network.")
+            return
 
 
 # --------------------------------------------------------------------------- #

@@ -20,7 +20,7 @@ It runs in two modes automatically:
 | 1 | **Multi-Agent System** | `main.py` (`build_root_agent`) | An ADK **Router** agent delegates (via `sub_agents`) to a **Cycle Expert** or a **Safety Guard**. The offline path mirrors this with keyword routing. |
 | 2 | **Agent Skills (tools)** | `skills.py` | `calculate_cycle_phase` and `get_fertile_window` are registered as ADK function tools (docstrings + type hints drive tool-calling). |
 | 3 | **Local MCP Server** | `mcp_server.py` | A real `mcp` SDK **stdio** server is the *only* component that reads `user_data.json`. The Cycle Expert fetches history through it (ADK `McpToolset`), never touching the file directly. |
-| 4 | **Security Features** | `security.py` | **PII Redactor** masks names/locations → `[USER]`/`[LOCATION]` before any text reaches the LLM (`before_model` callback). **Medical Disclaimer** guardrail appends the mandated Aura Alert when *pain/delay/bleeding/pregnant* appear (`after_model` callback). |
+| 4 | **Security Features** | `security.py` | **PII Redactor** — a dynamic, profile-driven + pattern-based interceptor: name/location/contextual-age are derived at runtime from `user_data.json` (`[USER]`/`[LOCATION]`/`[AGE]`), plus universal email → `[EMAIL]` and phone → `[PHONE]` matchers; boundary-safe for Latin **and** CJK, and degrades gracefully on cold start. Runs on the `before_model` callback. **Medical Disclaimer** guardrail appends the mandated Aura Alert when *pain/delay/bleeding/pregnant* appear (`after_model` callback). |
 
 ---
 
@@ -59,10 +59,28 @@ Without a key the app runs in **OFFLINE** mode automatically.
 
 ## Run
 
+### Terminal (the original, always-available UI)
+
 ```bash
 python main.py            # interactive chat
 python main.py --demo     # scripted demo of both specialist agents
 ```
+
+### Web UI (ADK local runtime)
+
+Serves the **same** agent tree (Router → Cycle Expert / Safety Guard, with the MCP toolset
+and the PII + disclaimer security callbacks) over a local FastAPI server with a chat Web UI.
+Requires `GOOGLE_API_KEY` in `.env`.
+
+```bash
+python app.py             # our launcher (uvicorn) → http://localhost:8000
+# — or the ADK-native CLI, run from the project root: —
+adk web                   # → http://localhost:8000  (then pick "femcare_agent")
+adk api_server            # headless REST/SSE API only (no Web UI)
+```
+
+Open <http://localhost:8000>, choose the **femcare_agent** app, and chat. The terminal app
+(`main.py`) is untouched and remains the offline safety net.
 
 Each component is also runnable standalone for inspection:
 
@@ -80,6 +98,8 @@ python mcp_server.py      # start the MCP server on stdio (Ctrl-C to stop)
 | File | Responsibility |
 |------|----------------|
 | `main.py` | Entry point; agent orchestration, `rich` terminal UI, live + offline paths. |
+| `app.py` | Local web runtime — serves the same agent tree via ADK's FastAPI + Web UI. |
+| `femcare_agent/` | Thin ADK agent package (`root_agent`) discovered by `adk web` / `app.py`. |
 | `skills.py` | Cycle-phase and fertile-window skills (ADK tools). |
 | `mcp_server.py` | Local MCP server exposing cycle history over stdio. |
 | `security.py` | PII redaction + medical disclaimer (pure functions + ADK callbacks). |

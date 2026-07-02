@@ -28,6 +28,11 @@ logger = logging.getLogger("femcare.mcp")
 # The MCP server identity advertised to clients (the ADK agent).
 mcp = FastMCP("femcare-local-db")
 
+# Structured cold-start signal returned when there is no local cycle data at all
+# (file missing/corrupt, or an empty period_history). The agent reads this payload
+# and asks the user to provide their details, rather than crashing or guessing.
+NO_DATA = {"status": "empty", "message": "No historical cycle data found for the user."}
+
 
 def _load_user_data() -> dict:
     """Read the local (mock-encrypted) user data file. Never raises."""
@@ -47,20 +52,22 @@ def get_cycle_history() -> dict:
     so the agent can reason about trends (e.g. average cycle length, regularity).
 
     Returns:
-        A dict with 'status', 'average_cycle_length', 'average_period_length',
-        and 'period_history' (a list of past cycles). PII (name/location) is NOT
-        included — only the data needed for cycle reasoning is exposed.
+        On success, a dict with 'status'='success', 'average_cycle_length',
+        'average_period_length', and 'period_history' (a list of past cycles).
+        If there is no local data, returns {'status': 'empty', 'message': ...}.
+        PII (name/location) is NOT included — only cycle-reasoning data is exposed.
     """
     data = _load_user_data()
-    if not data:
-        return {"status": "error", "message": "User data unavailable."}
+    history = data.get("period_history", []) if data else []
+    if not data or not history:
+        return NO_DATA  # cold start: no file / empty history
 
     profile = data.get("profile", {})
     return {
         "status": "success",
         "average_cycle_length": profile.get("average_cycle_length"),
         "average_period_length": profile.get("average_period_length"),
-        "period_history": data.get("period_history", []),
+        "period_history": history,
     }
 
 
@@ -72,13 +79,14 @@ def get_last_period() -> dict:
     not state their last period date explicitly.
 
     Returns:
-        A dict with 'status', 'last_period_date' ("YYYY-MM-DD"), and
-        'cycle_length' (int). On failure, 'status' is 'error' with a 'message'.
+        On success, a dict with 'status'='success', 'last_period_date'
+        ("YYYY-MM-DD"), and 'cycle_length' (int). If there is no local data,
+        returns {'status': 'empty', 'message': ...}.
     """
     data = _load_user_data()
-    history = data.get("period_history", [])
+    history = data.get("period_history", []) if data else []
     if not history:
-        return {"status": "error", "message": "No period history on record."}
+        return NO_DATA  # cold start: no file / empty history
 
     # History is stored chronologically; the last entry is the most recent cycle.
     latest = max(history, key=lambda rec: rec.get("start_date", ""))
