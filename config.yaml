@@ -1,0 +1,33 @@
+# FemCare Concierge — central configuration.
+# Coding standard: no hardcoded paths / magic strings in code; read them from here.
+
+# --- Local data ("encrypted local DB" mock served over MCP) ---
+data:
+  # Path to the local user data file, relative to the project root.
+  user_data_file: "user_data.json"
+
+# --- Model / LLM ---
+model:
+  # Gemini model used by the ADK agents when GOOGLE_API_KEY is present.
+  name: "gemini-flash-latest"
+  temperature: 0.3
+  max_output_tokens: 1024
+
+# --- Cycle defaults ---
+cycle:
+  default_length: 28        # Fallback cycle length (days) if none supplied.
+  luteal_phase_length: 14   # Days from ovulation to next period (used for prediction).
+  fertile_window_days: 5    # Length of the fertile window ending on ovulation day.
+
+# --- Security guardrails ---
+security:
+  # Keywords that force the medical disclaimer to be appended (case-insensitive).
+  medical_keywords:
+    - "pain"
+    - "delay"
+    - "delayed"
+    - "bleeding"
+    - "pregnant"
+    - "pregnancy"
+  # The exact disclaimer text mandated by the project spec.
+  disclaimer: "⚕️ Aura Alert: This advice is AI-generated and does not replace professional medical diagnosis. Please consult a doctor."

@@ -1,0 +1,11 @@
+# FemCare Concierge — pinned, known-compatible versions (hackathon sprint)
+# google-adk 2.3.0 constrains: google-genai>=2.8,<3 | pydantic>=2.12,<3 | mcp>=1.24,<2
+# The [mcp] extra pulls in anyio + mcp so ADK's McpToolset can talk to our local server.
+
+google-adk[mcp]==2.3.0     # Multi-agent framework (Agents, Runner, callbacks, McpToolset)
+google-genai==2.10.0       # Gemini model access used by ADK
+mcp==1.28.1                # Model Context Protocol SDK (our local stdio server)
+rich==14.3.4               # Terminal UI (panels, color-coded agent output)
+pydantic==2.13.4           # Data models / validation (within ADK's <3 range)
+python-dotenv==1.2.2       # Loads GOOGLE_API_KEY from .env
+PyYAML==6.0.3              # Reads config.yaml (no hardcoded paths)
