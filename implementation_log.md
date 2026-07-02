@@ -1,5 +1,32 @@
 # Implementation Log
 
+## 2026-07-02 — Submission readiness: security whitepaper docs + final verification
+
+Locked the project for the Kaggle submission and made the elite engineering work visible to
+judges in the docs.
+
+### Docs
+- `README.md`: added a **"🚀 Quick Start"** section (`make install` / `run` / `clean`) and a new
+  enterprise section **"🛡️ Architectural Edge: Local Sovereignty & Bi-Directional Privacy
+  Firewall"** with an ASCII flow diagram (User → Inbound Redactor `security.py` → Cloud Reasoning
+  Gemini → Structured Outbound tool call → Local MCP Write-Back `mcp_server.py` with atomic
+  `os.replace`). Explicitly documents the **CJK boundary-safety** rule (skip single-character
+  non-ASCII tokens; `李明`→`[USER]` while `行李`/`哪里` survive) and **single-tenant,
+  physics-isolated storage** (one local file, MCP stdio subprocess, identity-free records).
+- `implementation_log.md`: this entry.
+
+### Final verification (all green)
+- Write-back history expansion: `add_period_record("2026-07-28")` → history 6 → 7 records; new
+  record `{start_date:2026-07-28, end_date:2026-08-01, cycle_length:31, symptoms:[]}`;
+  `get_last_period` reflects the new date. Stats recalculation refreshes
+  `average_cycle_length` / `average_period_length`. Bad date / non-positive duration → error
+  payloads. (Run against a temp copy so the seed stays intact.)
+- PII: name/location/age/email/phone masked; `2026-06-27`, `day 30`, `Priyanka` untouched;
+  CJK `李明`→`[USER]`, `行李`/`哪里` intact; cold start (missing file) still masks email/phone.
+- DX: `make install` builds `.venv` with pinned deps; `make run` key-guard + web boot verified;
+  `make clean` empties history with `.bak` backup and keeps `.venv`; `make distclean` removes it.
+- Regression: MCP server registers all 3 tools; offline `main.py --demo` unchanged.
+
 ## 2026-07-02 — Write-back MCP tool + professional Makefile
 
 ### Added

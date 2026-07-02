@@ -13,6 +13,22 @@ It runs in two modes automatically:
 
 ---
 
+## 🚀 Quick Start
+
+Three commands — reproducible by any judge in under a minute:
+
+```bash
+make install   # checks python3, creates an isolated .venv, installs the pinned deps
+make run       # guards GOOGLE_API_KEY (prints a friendly setup guide if missing),
+               # then boots the Web Dev-UI + the local MCP server
+make clean     # resets user_data.json to a pristine cold-start state (keeps .venv)
+```
+
+Then open **<http://localhost:8000/dev-ui/>** and pick the **`femcare_agent`** app.
+No API key? It still runs — `python main.py` drops into a fully offline deterministic mode.
+
+---
+
 ## How this meets the four Capstone criteria
 
 | # | Criterion | Where it lives | What it does |
@@ -38,6 +54,71 @@ It runs in two modes automatically:
  │  • MCP tools ────┼──▶ mcp_server.py (stdio)  │
  └──────────────────┘       └──────────────────┘
 ```
+
+---
+
+## 🛡️ Architectural Edge: Local Sovereignty & Bi-Directional Privacy Firewall
+
+FemCare treats privacy as a **two-way firewall** wrapped around the single point of cloud
+exposure — the LLM call. Personal data is **sanitized on the way out** and **confined to the
+local machine on the way back**. The user's raw identity never crosses the network, and even
+at rest the on-disk record is anonymous.
+
+```
+┌──────────────────────────────── YOUR MACHINE · single tenant · no external DB ────────────────────────────────┐
+│                                                                                                                │
+│   User prompt                                                                                                  │
+│   "I'm Priya Sharma, Bangalore, +1 415-555-2671"                                                               │
+│        │                                                                                                       │
+│        ▼                                                                                                       │
+│   ① INBOUND REDACTOR  ──  security.py :: redact_pii()  (ADK before_model_callback)                             │
+│        │  name→[USER]  city→[LOCATION]  age→[AGE]  email→[EMAIL]  phone→[PHONE]                                 │
+│        │                                                                                                       │
+│        │   …only opaque tokens are allowed to leave the machine…                                               │
+│        ▼                                                                                                       │
+│  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ network boundary ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌     │
+│        ▼                                                                                                       │
+│   ② CLOUD REASONING  ──  Gemini via Google ADK   (sees "[USER] from [LOCATION]", never the real values)        │
+│        │                                                                                                       │
+│        ▼                                                                                                       │
+│  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ network boundary ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌     │
+│        ▼                                                                                                       │
+│   ③ STRUCTURED OUTBOUND PARAMETERS  ──  the model returns a *typed tool call*, not prose:                      │
+│        │        add_period_record(start_date="2026-07-28", duration=5)                                         │
+│        ▼                                                                                                       │
+│   ④ LOCAL MCP WRITE-BACK BOUNDARY  ──  mcp_server.py :: add_period_record() → _save_user_data()                │
+│        │        atomic mutation:  write *.tmp  →  os.replace()  (crash-safe, never half-written)               │
+│        ▼                                                                                                       │
+│   user_data.json   ──  { "start_date": "2026-07-28", "end_date": "2026-08-01",                                 │
+│   (anonymous,           "cycle_length": 31, "symptoms": [] }   ← pure numbers, zero identity                   │
+│    on your disk)                                                                                                │
+│                                                                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### ① Inbound firewall — dynamic, data-driven redaction (`security.py`)
+Redaction rules are **compiled at runtime from the active profile** in `user_data.json` (so the
+security layer adapts the instant the DB changes — no hardcoded string list), then layered with
+**universal pattern matchers** for anything a user types accidentally:
+- profile-driven: name (+ tokens) → `[USER]`, location/city → `[LOCATION]`, contextual age → `[AGE]`
+- universal: `[EMAIL]` and `[PHONE]` (phone is **digit-count-validated to 10–15 digits**, so dates
+  like `2026-06-27` and phrases like `day 30` are never mistaken for phone numbers)
+
+### 🌏 CJK boundary safety (the subtle bug most redactors ship)
+Latin word boundaries (`\b`) don't exist in Chinese/Japanese/Korean text, so a naive matcher
+either misses CJK names or **over-redacts** — a lone surname character like `李` would clobber
+innocent words such as `行李` ("luggage") or `哪里` ("where"). Our solution:
+- `\b…\b` for ASCII terms; **literal boundary-free match** for non-ASCII terms.
+- **Single-character non-ASCII tokens are never turned into patterns.** We only redact multi-char
+  terms (`len ≥ 2`). Result: `李明` → `[USER]`, while `行李` / `哪里` are left perfectly intact.
+
+### ④ Single-tenant, physics-isolated storage (`mcp_server.py`)
+There is **no external database and no cloud persistence.** State lives in exactly one local file,
+`user_data.json`, reachable only through the MCP server running as a **local stdio subprocess** —
+the sole component permitted to read *or* write it. Writes are **atomic** (`write .tmp` →
+`os.replace`), so the file can never be left half-written. And what's stored is deliberately
+**identity-free**: dates and cycle-length integers only. Even if the disk were seized, there is no
+name, address, or contact to leak. That is data sovereignty by construction, not by policy.
 
 ---
 
