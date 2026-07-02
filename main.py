@@ -223,13 +223,30 @@ async def handle_offline(user_text: str) -> None:
 def build_root_agent():
     """Construct the ADK Router → (Cycle Expert | Safety Guard) agent tree."""
     from google.adk.agents import Agent
+    from google.adk.models import Gemini
     from google.adk.tools.mcp_tool import McpToolset
     from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+    from google.genai.types import HttpRetryOptions
     from mcp import StdioServerParameters
 
     from security import disclaimer_callback, pii_redactor_callback
 
-    model = CONFIG["model"]["name"]
+    # Retry-configured model so transient Gemini overloads (503 "high demand",
+    # plus other 5xx) self-heal with exponential backoff. Shared by all three
+    # agents; also protects the web runtime (app.py / adk web) since it builds
+    # from this same function. 429 is intentionally excluded so the free-tier
+    # rate-limit UX in handle_live() (which honours the server's retryDelay)
+    # keeps owning it.
+    model = Gemini(
+        model=CONFIG["model"]["name"],
+        retry_options=HttpRetryOptions(
+            attempts=5,
+            initial_delay=1.0,
+            max_delay=30.0,
+            exp_base=2.0,
+            http_status_codes=[500, 502, 503, 504],
+        ),
+    )
 
     # MCP toolset: ADK launches mcp_server.py as a subprocess and exposes its tools.
     mcp_tools = McpToolset(
@@ -298,6 +315,12 @@ def _is_rate_limit(exc: Exception) -> bool:
     return "429" in msg or "RESOURCE_EXHAUSTED" in msg
 
 
+def _is_overloaded(exc: Exception) -> bool:
+    """True if Gemini returned a transient overload (503 / UNAVAILABLE) error."""
+    msg = str(exc)
+    return "503" in msg or "UNAVAILABLE" in msg
+
+
 def _retry_delay_seconds(exc: Exception, default: int = 32) -> int:
     """Extract the suggested retry delay (seconds) from a 429 error message."""
     msg = str(exc)
@@ -339,6 +362,12 @@ async def handle_live(runner, user_id: str, session_id: str, user_text: str) -> 
                     "System",
                     "⏳ Gemini free-tier quota still exhausted. Wait a minute and try again, "
                     "or raise your quota at https://ai.dev/rate-limit.",
+                )
+            elif _is_overloaded(exc):
+                show_response(
+                    "System",
+                    "🌐 Gemini is temporarily overloaded (503). Retries were exhausted — "
+                    "please try again in a moment.",
                 )
             else:
                 logger.error("[main] Live run failed: %s", exc)
