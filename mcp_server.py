@@ -20,9 +20,16 @@ from datetime import datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
 
-from config import data_file_path
+from config import data_file_path, load_config
 
 _DATE_FMT = "%Y-%m-%d"
+
+# Plausibility bounds for a logged period duration (config-driven, no magic numbers).
+# > TYPICAL → still saved, but flagged with a gentle "prolonged bleeding" note;
+# > MAX     → rejected as an implausible input (likely a typo / wrong field).
+_CYCLE_CFG = load_config().get("cycle", {})
+TYPICAL_PERIOD_LENGTH = _CYCLE_CFG.get("typical_period_length", 7)
+MAX_PERIOD_LENGTH = _CYCLE_CFG.get("max_period_length", 15)
 
 # Keep the subprocess quiet: only warnings/errors reach the parent's terminal.
 logging.basicConfig(level=logging.WARNING)
@@ -138,9 +145,12 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
         duration: Number of days the period lasted (defaults to 5).
 
     Returns:
-        {"status": "success", "message": "Record added successfully."} on success,
-        or {"status": "error", "message": ...} if the input was invalid or the
-        write failed.
+        {"status": "success", "message": "Record added successfully."} on success.
+        If the duration is longer than a typical period (but still plausible), the
+        result also carries a "note" field with a gentle, non-diagnostic prompt to
+        consider seeing a healthcare provider. On invalid input or a failed write,
+        returns {"status": "error", "message": ...} — including an implausibly long
+        duration (> max_period_length), which is refused rather than saved.
     """
     try:
         start = datetime.strptime(start_date.strip(), _DATE_FMT)
@@ -148,6 +158,12 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
         return {"status": "error", "message": "Invalid start_date. Use YYYY-MM-DD."}
     if not isinstance(duration, int) or duration <= 0:
         return {"status": "error", "message": "Invalid duration. Use a positive number of days."}
+    if duration > MAX_PERIOD_LENGTH:
+        return {"status": "error", "message": (
+            f"A single period lasting {duration} days is unusually long to log "
+            f"(max {MAX_PERIOD_LENGTH}). Please double-check the number of days — "
+            f"and if bleeding truly lasted this long, please consult a doctor."
+        )}
 
     data = _load_user_data() or {}
     profile = data.setdefault("profile", {})
@@ -183,7 +199,18 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
 
     if not _save_user_data(data):
         return {"status": "error", "message": "Could not save the record. Please try again."}
-    return {"status": "success", "message": "Record added successfully."}
+
+    result = {"status": "success", "message": "Record added successfully."}
+    # Prolonged (but plausible) bleeding: save it, but attach a gentle health note.
+    # The agent relays this to the user; the word "bleeding" also naturally triggers
+    # the Aura Alert disclaimer on the after_model callback.
+    if duration > TYPICAL_PERIOD_LENGTH:
+        result["note"] = (
+            f"Note: {duration} days is longer than a typical period "
+            f"(~{TYPICAL_PERIOD_LENGTH} days or fewer). Prolonged bleeding can have "
+            f"many causes — consider checking in with a healthcare provider."
+        )
+    return result
 
 
 if __name__ == "__main__":

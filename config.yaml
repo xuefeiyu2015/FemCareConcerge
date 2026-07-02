@@ -18,6 +18,8 @@ cycle:
   default_length: 28        # Fallback cycle length (days) if none supplied.
   luteal_phase_length: 14   # Days from ovulation to next period (used for prediction).
   fertile_window_days: 5    # Length of the fertile window ending on ovulation day.
+  typical_period_length: 7  # Logged duration above this → gentle "prolonged" note (still saved).
+  max_period_length: 15     # Logged duration above this → rejected as implausible input.
 
 # --- Security guardrails ---
 security:

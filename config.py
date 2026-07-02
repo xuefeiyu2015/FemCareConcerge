@@ -38,7 +38,8 @@ def load_config() -> dict[str, Any]:
         return {
             "data": {"user_data_file": "user_data.json"},
             "model": {"name": "gemini-flash-latest", "temperature": 0.3, "max_output_tokens": 1024},
-            "cycle": {"default_length": 28, "luteal_phase_length": 14, "fertile_window_days": 5},
+            "cycle": {"default_length": 28, "luteal_phase_length": 14, "fertile_window_days": 5,
+                      "typical_period_length": 7, "max_period_length": 15},
             "security": {"medical_keywords": ["pain", "delay", "bleeding", "pregnant"], "disclaimer": ""},
         }
 
