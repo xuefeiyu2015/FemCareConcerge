@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+from datetime import datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
 
 from config import data_file_path
+
+_DATE_FMT = "%Y-%m-%d"
 
 # Keep the subprocess quiet: only warnings/errors reach the parent's terminal.
 logging.basicConfig(level=logging.WARNING)
@@ -42,6 +46,29 @@ def _load_user_data() -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         logger.error("[mcp] Failed to read user data: %s", exc)
         return {}
+
+
+def _save_user_data(data: dict) -> bool:
+    """Atomically persist user data to disk. Never raises; returns success.
+
+    Writes to a temp file in the same directory then os.replace()s it into place,
+    so a crash mid-write can never corrupt the real user_data.json.
+    """
+    path = data_file_path()
+    tmp = f"{path}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        logger.error("[mcp] Failed to write user data: %s", exc)
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        return False
 
 
 @mcp.tool()
@@ -96,6 +123,67 @@ def get_last_period() -> dict:
         "last_period_date": latest.get("start_date"),
         "cycle_length": latest.get("cycle_length", profile.get("average_cycle_length", 28)),
     }
+
+
+@mcp.tool()
+def add_period_record(start_date: str, duration: int = 5) -> dict:
+    """Log a new period for the user by saving it to the local database.
+
+    Use this WRITE tool when the user asks to record or log a period (e.g. "record
+    my period for today", "log my period starting 2026-07-28"). It appends the new
+    cycle to the user's history and refreshes their average cycle/period stats.
+
+    Args:
+        start_date: First day of the period being logged, as "YYYY-MM-DD".
+        duration: Number of days the period lasted (defaults to 5).
+
+    Returns:
+        {"status": "success", "message": "Record added successfully."} on success,
+        or {"status": "error", "message": ...} if the input was invalid or the
+        write failed.
+    """
+    try:
+        start = datetime.strptime(start_date.strip(), _DATE_FMT)
+    except (ValueError, AttributeError):
+        return {"status": "error", "message": "Invalid start_date. Use YYYY-MM-DD."}
+    if not isinstance(duration, int) or duration <= 0:
+        return {"status": "error", "message": "Invalid duration. Use a positive number of days."}
+
+    data = _load_user_data() or {}
+    profile = data.setdefault("profile", {})
+    history = data.setdefault("period_history", [])
+
+    # Cycle length = gap from the most recent prior start to this one; fall back to
+    # the profile average (or 28) when there is no prior record (cold start).
+    prior_starts = [rec.get("start_date") for rec in history if rec.get("start_date")]
+    if prior_starts:
+        last_start = datetime.strptime(max(prior_starts), _DATE_FMT)
+        cycle_length = (start - last_start).days
+    else:
+        cycle_length = int(profile.get("average_cycle_length") or 28)
+
+    end_date = start + timedelta(days=duration - 1)
+    history.append({
+        "start_date": start.strftime(_DATE_FMT),
+        "end_date": end_date.strftime(_DATE_FMT),
+        "cycle_length": cycle_length,
+        "symptoms": [],
+    })
+
+    # Recalculate stats: average cycle length ignores non-positive/unknown gaps.
+    cycle_lengths = [r["cycle_length"] for r in history if isinstance(r.get("cycle_length"), int) and r["cycle_length"] > 0]
+    if cycle_lengths:
+        profile["average_cycle_length"] = round(sum(cycle_lengths) / len(cycle_lengths))
+    durations = [
+        (datetime.strptime(r["end_date"], _DATE_FMT) - datetime.strptime(r["start_date"], _DATE_FMT)).days + 1
+        for r in history if r.get("start_date") and r.get("end_date")
+    ]
+    if durations:
+        profile["average_period_length"] = round(sum(durations) / len(durations))
+
+    if not _save_user_data(data):
+        return {"status": "error", "message": "Could not save the record. Please try again."}
+    return {"status": "success", "message": "Record added successfully."}
 
 
 if __name__ == "__main__":

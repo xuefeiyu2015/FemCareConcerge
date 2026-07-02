@@ -1,5 +1,29 @@
 # Implementation Log
 
+## 2026-07-02 — Write-back MCP tool + professional Makefile
+
+### Added
+- `mcp_server.py`: `_save_user_data()` (atomic write via temp file + `os.replace`) and a new
+  write tool `add_period_record(start_date, duration=5)` — appends a cycle (computing
+  `end_date` and `cycle_length` from the prior record) and recalculates
+  `average_cycle_length` / `average_period_length`. Returns
+  `{"status": "success", "message": "Record added successfully."}` or an error payload. The MCP
+  server is now the sole read **and write** boundary for the data file.
+- `main.py`: Cycle Expert instruction now covers saving — on "record/log my period" it calls
+  `add_period_record` and confirms; only writes when clearly asked.
+- `Makefile` (TAB-indented): `install` (check python3 → `.venv` → deps), `run` (guards
+  `GOOGLE_API_KEY`, prints setup guide if missing, else launches `app.py`), `clean` (wipe
+  caches + reset `user_data.json` to cold start with a `.bak` backup, keeps `.venv`),
+  `distclean` (clean + remove `.venv`), `help` default.
+- `.gitignore`: ignore `*.bak`. `README.md`: Makefile quickstart + write-back tool notes.
+
+### Verified
+- `add_period_record("2026-07-28")` → success; history 6→7, `get_last_period` reflects it,
+  averages refreshed; bad date / bad duration → error payloads (tested on a temp copy).
+- `make help/clean/run` guards behave; `make install` builds `.venv` with the pinned deps;
+  `.venv/bin/python` imports the agent tree (cycle_expert has 3 tools).
+- Regression: MCP server registers all 3 tools; offline `main.py --demo` unchanged.
+
 ## 2026-07-02 — Dynamic, pattern-based PII redactor (no heavy NLP)
 
 Refactored the PII section of `security.py` from a hardcoded term list into a Dynamic

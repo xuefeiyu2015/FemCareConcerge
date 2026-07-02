@@ -1,6 +1,9 @@
 # Secrets
 .env
 
+# Backups (e.g. user_data.json.bak from `make clean`)
+*.bak
+
 # Python
 __pycache__/
 *.py[cod]
