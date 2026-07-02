@@ -13,3 +13,9 @@ venv/
 
 # OS / editor
 .DS_Store
+
+#docs
+.doc
+.png
+# Local ADK session database (not for version control)
+femcare_agent/.adk/session.db
