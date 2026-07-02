@@ -35,6 +35,22 @@ No API key? It still runs — `python main.py` drops into a fully offline determ
 
 ---
 
+## 🌱 First run (cold start & onboarding)
+
+Start with no saved history (the state `make clean` leaves you in) and the agent
+onboards you conversationally instead of erroring:
+
+1. Ask a prediction question → it detects the empty history and asks for your
+   **last period start date (YYYY-MM-DD)** and **average cycle length**.
+2. Say *"log my period starting 2026-06-27"* → the Cycle Expert calls the
+   `add_period_record` MCP tool, which **atomically writes** it to `user_data.json`.
+3. From then on, predictions use your own data — no manual file editing required.
+
+This same graceful cold-start handling is guarded end-to-end (`skills.py`,
+`security.py`, `mcp_server.py`), so the app never crashes on missing data.
+
+---
+
 ## How this meets the four Capstone criteria
 
 | # | Criterion | Where it lives | What it does |
