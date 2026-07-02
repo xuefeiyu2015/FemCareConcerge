@@ -27,6 +27,12 @@ make clean     # resets user_data.json to a pristine cold-start state (keeps .ve
 Then open **<http://localhost:8000/dev-ui/>** and pick the **`femcare_agent`** app.
 No API key? It still runs — `python main.py` drops into a fully offline deterministic mode.
 
+> ⚠️ **`user_data.json` is fake, example data — for demonstration only.** The bundled profile
+> (`HelloWorld`, Bangalore, and the sample period history) is entirely synthetic and belongs to
+> no real person. It exists solely so the demo runs out of the box. **To use your own history,
+> just replace the contents of `user_data.json`** with your real profile and `period_history`
+> (keep the same JSON shape) — the security layer redacts your name/location/age automatically.
+
 ---
 
 ## How this meets the four Capstone criteria
@@ -196,7 +202,7 @@ python mcp_server.py      # start the MCP server on stdio (Ctrl-C to stop)
 | `mcp_server.py` | Local MCP server exposing cycle history over stdio. |
 | `security.py` | PII redaction + medical disclaimer (pure functions + ADK callbacks). |
 | `config.py` / `config.yaml` | Central config (paths, model, cycle constants, guardrail strings). |
-| `user_data.json` | Mock "encrypted local DB" of period history (read + written via MCP). |
+| `user_data.json` | **Fake, example-only** "encrypted local DB" of period history (read + written via MCP). Replace with your own to personalize. |
 | `Makefile` | DX commands: `install` / `run` / `clean` / `distclean`. |
 | `requirements.txt` | Pinned dependencies. |
 
