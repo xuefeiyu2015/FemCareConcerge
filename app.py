@@ -21,6 +21,8 @@ Requires GOOGLE_API_KEY in .env (the web runtime always calls Gemini).
 
 from __future__ import annotations
 
+import os
+
 import uvicorn
 from dotenv import load_dotenv
 from google.adk.cli.fast_api import get_fast_api_app
@@ -29,8 +31,8 @@ from config import PROJECT_ROOT
 
 load_dotenv()  # make GOOGLE_API_KEY available to the web runtime
 
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.getenv("FEMCARE_HOST", "127.0.0.1")
+PORT = int(os.getenv("FEMCARE_PORT", "8000"))
 
 # get_fast_api_app scans `agents_dir` for agent packages and loads their
 # `root_agent`. Our project root contains the `femcare_agent` package.

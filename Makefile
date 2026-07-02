@@ -5,16 +5,20 @@ PYTHON ?= python3
 VENV   := .venv
 PY     := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
+PORT   ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help install run clean distclean
+.PHONY: help install run stop clean distclean
 
 help:
 	@echo "FemCare Concierge — available commands:"
 	@echo "  make install    Check python3, create $(VENV) if missing, install requirements"
 	@echo "  make run        Verify GOOGLE_API_KEY, then launch the Web Dev-UI + MCP server"
+	@echo "  make stop       Free port $(PORT) if a stale server is still holding it"
 	@echo "  make clean      Wipe caches + reset user_data.json to cold start (keeps $(VENV))"
 	@echo "  make distclean  Everything in clean, plus remove $(VENV)"
+	@echo ""
+	@echo "  Override the port with:  make run PORT=8001"
 
 install:
 	@command -v $(PYTHON) >/dev/null 2>&1 || { echo "❌ python3 not found. Please install Python 3."; exit 1; }
@@ -24,18 +28,30 @@ install:
 	@$(PIP) install -r requirements.txt
 	@echo "✅ Install complete. Add your key to .env, then run 'make run'."
 
-run:
+run: stop
 	@test -d $(VENV) || { echo "❌ No $(VENV) found. Run 'make install' first."; exit 1; }
 	@if [ -n "$$GOOGLE_API_KEY" ] || grep -qsE '^GOOGLE_API_KEY=.+' .env; then \
-		echo "🌸 Starting FemCare web runtime → http://localhost:8000/dev-ui/  (app: femcare_agent)"; \
+		echo "🌸 Starting FemCare web runtime → http://localhost:$(PORT)/dev-ui/  (app: femcare_agent)"; \
 		echo "   (the local MCP server is spawned automatically by the agent)"; \
-		$(PY) app.py; \
+		FEMCARE_PORT=$(PORT) $(PY) app.py; \
 	else \
 		echo "⚠️  GOOGLE_API_KEY is not set — the live agent needs it."; \
 		echo "   1) cp .env.example .env"; \
 		echo "   2) Add:  GOOGLE_API_KEY=your_key   (get one at https://aistudio.google.com/apikey)"; \
 		echo "   3) Re-run:  make run"; \
 		exit 1; \
+	fi
+
+stop:
+	@pids=$$(lsof -ti tcp:$(PORT) -sTCP:LISTEN 2>/dev/null); \
+	if [ -n "$$pids" ]; then \
+		echo "🛑 Freeing port $(PORT) (stale PID(s): $$pids)..."; \
+		kill $$pids 2>/dev/null || true; \
+		sleep 1; \
+		pids=$$(lsof -ti tcp:$(PORT) -sTCP:LISTEN 2>/dev/null); \
+		if [ -n "$$pids" ]; then kill -9 $$pids 2>/dev/null || true; fi; \
+	else \
+		echo "✅ Port $(PORT) is already free."; \
 	fi
 
 clean:
