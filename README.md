@@ -41,7 +41,8 @@ Start with no saved history (the state `make clean` leaves you in) and the agent
 onboards you conversationally instead of erroring:
 
 1. Ask a prediction question → it detects the empty history and asks for your
-   **last period start date (YYYY-MM-DD)** and **average cycle length**.
+   last period's **start date (YYYY-MM-DD)**, **end date (YYYY-MM-DD)**, and
+   **typical cycle length** — then saves them so predictions work right away.
 2. Say *"log my period starting 2026-06-27"* → the Cycle Expert calls the
    `add_period_record` MCP tool, which **atomically writes** it to `user_data.json`.
 3. From then on, predictions use your own data — no manual file editing required.

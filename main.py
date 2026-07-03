@@ -160,8 +160,8 @@ async def cycle_expert_offline(user_text: str) -> str:
     if isinstance(last, dict) and last.get("status") == "empty":
         return (
             "I don't have any saved cycle history for you yet. To predict your cycle, could "
-            "you tell me the start date of your last period (YYYY-MM-DD) and your average "
-            "cycle length in days?"
+            "you tell me the start date of your last period (YYYY-MM-DD), its end date "
+            "(YYYY-MM-DD), and your typical cycle length in days?"
         )
     if not isinstance(last, dict) or last.get("status") != "success":
         return "I couldn't access your cycle history right now. Please try again."
@@ -267,16 +267,21 @@ def build_root_agent():
             "get_fertile_window to compute answers. Be concise, warm, and factual.\n"
             "SAVING DATA: You can also LOG a period for the user. When they say things like "
             "'record my period for today' or 'log my period starting <date>', call "
-            "add_period_record(start_date=YYYY-MM-DD, duration=<days, default 5>). If they don't "
-            "give a date, ask for it (or confirm 'today'). After a successful save, warmly "
-            "confirm what you recorded. If the tool result includes a 'note' field, gently "
-            "share that note with the user too. Only write when the user clearly asks to "
-            "log/record.\n"
+            "add_period_record(start_date=YYYY-MM-DD, duration=<days, default 5>). You may "
+            "instead pass end_date=YYYY-MM-DD to log the period by its start and end dates, "
+            "and cycle_length=<days> to record the user's typical cycle length (useful at "
+            "onboarding). If they don't give a date, ask for it (or confirm 'today'). After a "
+            "successful save, warmly confirm what you recorded. If the tool result includes a "
+            "'note' field, gently share that note with the user too. Only write when the user "
+            "clearly asks to log/record.\n"
             "COLD START: If a tool returns {'status': 'empty'}, or a calculation skill returns "
             "an {'error': 'InvalidInput'} payload, do NOT crash, retry, or guess. Stay in your "
             "empathetic concierge persona, explain that no local cycle data is available, and "
-            "politely ask the user to provide their last period start date (YYYY-MM-DD) and "
-            "their average cycle length in days."
+            "politely ask the user for three things: their last period's start date "
+            "(YYYY-MM-DD), its end date (YYYY-MM-DD), and their typical cycle length in days. "
+            "Once you have all three, save them with "
+            "add_period_record(start_date=..., end_date=..., cycle_length=...) and warmly "
+            "confirm what you recorded (relaying any 'note' field)."
         ),
         tools=[calculate_cycle_phase, get_fertile_window, mcp_tools],
         after_model_callback=disclaimer_callback,  # Security guardrail on output

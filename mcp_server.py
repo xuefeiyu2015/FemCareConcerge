@@ -133,7 +133,12 @@ def get_last_period() -> dict:
 
 
 @mcp.tool()
-def add_period_record(start_date: str, duration: int = 5) -> dict:
+def add_period_record(
+    start_date: str,
+    duration: int = 5,
+    end_date: str | None = None,
+    cycle_length: int | None = None,
+) -> dict:
     """Log a new period for the user by saving it to the local database.
 
     Use this WRITE tool when the user asks to record or log a period (e.g. "record
@@ -142,7 +147,17 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
 
     Args:
         start_date: First day of the period being logged, as "YYYY-MM-DD".
-        duration: Number of days the period lasted (defaults to 5).
+        duration: Number of days the period lasted (defaults to 5). Ignored when
+            end_date is given.
+        end_date: Optional last day of the period, as "YYYY-MM-DD". When provided,
+            the period's duration is derived from start_date..end_date instead of
+            the duration argument. Handy for onboarding, where the user gives the
+            start and end of their last period.
+        cycle_length: Optional typical cycle length in days. Provide this during
+            cold-start onboarding, when there is no prior history to infer the
+            cycle length from; it also seeds the profile's average cycle length.
+            When omitted, the cycle length is inferred from the gap to the most
+            recent prior period (falling back to the profile average, or 28).
 
     Returns:
         {"status": "success", "message": "Record added successfully."} on success.
@@ -156,6 +171,18 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
         start = datetime.strptime(start_date.strip(), _DATE_FMT)
     except (ValueError, AttributeError):
         return {"status": "error", "message": "Invalid start_date. Use YYYY-MM-DD."}
+
+    # An explicit end date takes precedence over the duration argument and defines
+    # the period length as an inclusive span of days.
+    if end_date is not None:
+        try:
+            end = datetime.strptime(end_date.strip(), _DATE_FMT)
+        except (ValueError, AttributeError):
+            return {"status": "error", "message": "Invalid end_date. Use YYYY-MM-DD."}
+        if end < start:
+            return {"status": "error", "message": "end_date cannot be before start_date."}
+        duration = (end - start).days + 1
+
     if not isinstance(duration, int) or duration <= 0:
         return {"status": "error", "message": "Invalid duration. Use a positive number of days."}
     if duration > MAX_PERIOD_LENGTH:
@@ -164,24 +191,30 @@ def add_period_record(start_date: str, duration: int = 5) -> dict:
             f"(max {MAX_PERIOD_LENGTH}). Please double-check the number of days — "
             f"and if bleeding truly lasted this long, please consult a doctor."
         )}
+    if cycle_length is not None and (not isinstance(cycle_length, int) or cycle_length <= 0):
+        return {"status": "error", "message": "Invalid cycle_length. Use a positive number of days."}
 
     data = _load_user_data() or {}
     profile = data.setdefault("profile", {})
     history = data.setdefault("period_history", [])
 
-    # Cycle length = gap from the most recent prior start to this one; fall back to
-    # the profile average (or 28) when there is no prior record (cold start).
+    # Cycle length: use the caller-supplied value (cold-start onboarding) if given;
+    # otherwise the gap from the most recent prior start to this one; otherwise fall
+    # back to the profile average (or 28) when there is no prior record.
     prior_starts = [rec.get("start_date") for rec in history if rec.get("start_date")]
-    if prior_starts:
+    if cycle_length is not None:
+        # Seed the profile so predictions have a cycle length before history builds up.
+        profile.setdefault("average_cycle_length", cycle_length)
+    elif prior_starts:
         last_start = datetime.strptime(max(prior_starts), _DATE_FMT)
         cycle_length = (start - last_start).days
     else:
         cycle_length = int(profile.get("average_cycle_length") or 28)
 
-    end_date = start + timedelta(days=duration - 1)
+    end_date_dt = start + timedelta(days=duration - 1)
     history.append({
         "start_date": start.strftime(_DATE_FMT),
-        "end_date": end_date.strftime(_DATE_FMT),
+        "end_date": end_date_dt.strftime(_DATE_FMT),
         "cycle_length": cycle_length,
         "symptoms": [],
     })
