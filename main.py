@@ -28,7 +28,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import sys
 import warnings
 
@@ -231,20 +230,23 @@ def build_root_agent():
 
     from security import disclaimer_callback, pii_redactor_callback
 
-    # Retry-configured model so transient Gemini overloads (503 "high demand",
-    # plus other 5xx) self-heal with exponential backoff. Shared by all three
-    # agents; also protects the web runtime (app.py / adk web) since it builds
-    # from this same function. 429 is intentionally excluded so the free-tier
-    # rate-limit UX in handle_live() (which honours the server's retryDelay)
-    # keeps owning it.
+    # Retry-configured model so transient Gemini failures self-heal with
+    # exponential backoff: 5xx overloads (503 "high demand", etc.) and 429
+    # free-tier rate limits (~5 req/min). Shared by all three agents, so this
+    # is the ONE place that protects BOTH surfaces — the CLI and the web
+    # runtime (app.py / adk web), which builds from this same function and has
+    # no other 429 handling. The 429 backoff ceiling (attempts=6, max_delay=60)
+    # is sized to outlast a per-minute quota window (~63s cumulative); if it's
+    # still exhausted afterwards, the CLI's handle_live() shows a friendly
+    # fallback message.
     model = Gemini(
         model=CONFIG["model"]["name"],
         retry_options=HttpRetryOptions(
-            attempts=5,
+            attempts=6,
             initial_delay=1.0,
-            max_delay=30.0,
+            max_delay=60.0,
             exp_base=2.0,
-            http_status_codes=[500, 502, 503, 504],
+            http_status_codes=[429, 500, 502, 503, 504],
         ),
     )
 
@@ -323,58 +325,45 @@ def _is_overloaded(exc: Exception) -> bool:
     return "503" in msg or "UNAVAILABLE" in msg
 
 
-def _retry_delay_seconds(exc: Exception, default: int = 32) -> int:
-    """Extract the suggested retry delay (seconds) from a 429 error message."""
-    msg = str(exc)
-    match = re.search(r"retry(?:Delay)?['\":\s]*['\"]?(\d+(?:\.\d+)?)s", msg)
-    return int(float(match.group(1))) + 2 if match else default
-
-
 async def handle_live(runner, user_id: str, session_id: str, user_text: str) -> None:
-    """Run one turn through the ADK Runner; auto-retry once on a rate limit."""
+    """Run one turn through the ADK Runner.
+
+    Transient 429/5xx retries are handled at the model layer (see build_root_agent's
+    HttpRetryOptions), so by the time an exception reaches here the retries are
+    already exhausted — we only classify it and show a friendly final message.
+    """
     from google.genai import types as genai_types
 
     console.print(f"[dim](redacted for LLM: “{redact_pii(user_text)}”)[/dim]")
     message = genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=user_text)])
 
-    for attempt in range(2):  # one initial try + one retry after a rate limit
-        final, author = "", "Cycle Expert"
-        try:
-            async for event in runner.run_async(
-                user_id=user_id, session_id=session_id, new_message=message
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    final = event.content.parts[0].text or ""
-                    author = {"cycle_expert": "Cycle Expert", "safety_guard": "Safety Guard"}.get(
-                        event.author, "Cycle Expert"
-                    )
-            show_response(author, final or "(no response)")
-            return
-        except Exception as exc:  # noqa: BLE001
-            if _is_rate_limit(exc) and attempt == 0:
-                delay = _retry_delay_seconds(exc)
-                console.print(
-                    f"[yellow]⏳ Gemini free-tier rate limit (5 req/min) hit — "
-                    f"waiting {delay}s and retrying…[/]"
+    final, author = "", "Cycle Expert"
+    try:
+        async for event in runner.run_async(
+            user_id=user_id, session_id=session_id, new_message=message
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                final = event.content.parts[0].text or ""
+                author = {"cycle_expert": "Cycle Expert", "safety_guard": "Safety Guard"}.get(
+                    event.author, "Cycle Expert"
                 )
-                await asyncio.sleep(delay)
-                continue
-            if _is_rate_limit(exc):
-                show_response(
-                    "System",
-                    "⏳ Gemini free-tier quota still exhausted. Wait a minute and try again, "
-                    "or raise your quota at https://ai.dev/rate-limit.",
-                )
-            elif _is_overloaded(exc):
-                show_response(
-                    "System",
-                    "🌐 Gemini is temporarily overloaded (503). Retries were exhausted — "
-                    "please try again in a moment.",
-                )
-            else:
-                logger.error("[main] Live run failed: %s", exc)
-                show_response(author, "The live agent hit an error; please check your API key / network.")
-            return
+        show_response(author, final or "(no response)")
+    except Exception as exc:  # noqa: BLE001
+        if _is_rate_limit(exc):
+            show_response(
+                "System",
+                "⏳ Gemini free-tier quota still exhausted after auto-retry. Wait a minute and "
+                "try again, or raise your quota at https://ai.dev/rate-limit.",
+            )
+        elif _is_overloaded(exc):
+            show_response(
+                "System",
+                "🌐 Gemini is temporarily overloaded (503). Retries were exhausted — "
+                "please try again in a moment.",
+            )
+        else:
+            logger.error("[main] Live run failed: %s", exc)
+            show_response(author, "The live agent hit an error; please check your API key / network.")
 
 
 # --------------------------------------------------------------------------- #
