@@ -19,3 +19,6 @@ venv/
 .png
 # Local ADK session database (not for version control)
 femcare_agent/.adk/session.db
+
+# Generated deliverables (slides, docs, figures, media)
+output/

@@ -138,12 +138,18 @@ def add_period_record(
     duration: int = 5,
     end_date: str | None = None,
     cycle_length: int | None = None,
+    confirmed: bool = False,
 ) -> dict:
     """Log a new period for the user by saving it to the local database.
 
     Use this WRITE tool when the user asks to record or log a period (e.g. "record
     my period for today", "log my period starting 2026-07-28"). It appends the new
     cycle to the user's history and refreshes their average cycle/period stats.
+
+    CONFIRMATION GATE: this tool never saves silently. Unless confirmed=True, it
+    validates the inputs and returns {"status": "needs_confirmation", "message":
+    ...} WITHOUT writing anything — relay that message to the user, then call again
+    with confirmed=True only after they explicitly agree to record it.
 
     Args:
         start_date: First day of the period being logged, as "YYYY-MM-DD".
@@ -158,14 +164,19 @@ def add_period_record(
             cycle length from; it also seeds the profile's average cycle length.
             When omitted, the cycle length is inferred from the gap to the most
             recent prior period (falling back to the profile average, or 28).
+        confirmed: Must be True to actually save. When False (the default), the
+            tool returns a "needs_confirmation" payload instead of writing, so the
+            user can confirm first.
 
     Returns:
         {"status": "success", "message": "Record added successfully."} on success.
         If the duration is longer than a typical period (but still plausible), the
         result also carries a "note" field with a gentle, non-diagnostic prompt to
-        consider seeing a healthcare provider. On invalid input or a failed write,
-        returns {"status": "error", "message": ...} — including an implausibly long
-        duration (> max_period_length), which is refused rather than saved.
+        consider seeing a healthcare provider. When confirmed is not True, returns
+        {"status": "needs_confirmation", "message": ...} without saving. On invalid
+        input or a failed write, returns {"status": "error", "message": ...} —
+        including an implausibly long duration (> max_period_length), which is
+        refused rather than saved.
     """
     try:
         start = datetime.strptime(start_date.strip(), _DATE_FMT)
@@ -193,6 +204,24 @@ def add_period_record(
         )}
     if cycle_length is not None and (not isinstance(cycle_length, int) or cycle_length <= 0):
         return {"status": "error", "message": "Invalid cycle_length. Use a positive number of days."}
+
+    # Confirmation gate: inputs are valid, but do not persist until the user has
+    # explicitly agreed. Echo the cleaned-up values so the agent can recap them.
+    if confirmed is not True:
+        recap = f"a period starting {start.strftime(_DATE_FMT)}"
+        if end_date is not None:
+            recap += f", ending {end.strftime(_DATE_FMT)} ({duration} days)"
+        else:
+            recap += f" lasting {duration} days"
+        if cycle_length is not None:
+            recap += f", with a {cycle_length}-day cycle length"
+        return {
+            "status": "needs_confirmation",
+            "message": (
+                f"Please confirm before saving: record {recap}? "
+                "Call again with confirmed=True to save it."
+            ),
+        }
 
     data = _load_user_data() or {}
     profile = data.setdefault("profile", {})
