@@ -8,11 +8,53 @@
     "average_period_length": 5
   },
   "period_history": [
-    { "start_date": "2026-02-04", "end_date": "2026-02-08", "cycle_length": 28, "symptoms": ["cramps"] },
-    { "start_date": "2026-03-03", "end_date": "2026-03-08", "cycle_length": 29, "symptoms": ["headache", "cramps"] },
-    { "start_date": "2026-04-01", "end_date": "2026-04-05", "cycle_length": 29, "symptoms": [] },
-    { "start_date": "2026-04-30", "end_date": "2026-05-04", "cycle_length": 30, "symptoms": ["bloating"] },
-    { "start_date": "2026-05-30", "end_date": "2026-06-03", "cycle_length": 28, "symptoms": ["cramps", "fatigue"] },
-    { "start_date": "2026-06-27", "end_date": "2026-07-01", "cycle_length": 29, "symptoms": ["mood swings"] }
+    {
+      "start_date": "2026-02-04",
+      "end_date": "2026-02-08",
+      "cycle_length": 28,
+      "symptoms": [
+        "cramps"
+      ]
+    },
+    {
+      "start_date": "2026-03-03",
+      "end_date": "2026-03-08",
+      "cycle_length": 29,
+      "symptoms": [
+        "headache",
+        "cramps"
+      ]
+    },
+    {
+      "start_date": "2026-04-01",
+      "end_date": "2026-04-05",
+      "cycle_length": 29,
+      "symptoms": []
+    },
+    {
+      "start_date": "2026-04-30",
+      "end_date": "2026-05-04",
+      "cycle_length": 30,
+      "symptoms": [
+        "bloating"
+      ]
+    },
+    {
+      "start_date": "2026-05-30",
+      "end_date": "2026-06-03",
+      "cycle_length": 28,
+      "symptoms": [
+        "cramps",
+        "fatigue"
+      ]
+    },
+    {
+      "start_date": "2026-06-27",
+      "end_date": "2026-07-01",
+      "cycle_length": 29,
+      "symptoms": [
+        "mood swings"
+      ]
+    }
   ]
 }
